@@ -1,4 +1,5 @@
 import { groq } from "@/lib/groq";
+import { buildSentimentPrompt } from "@/lib/prompts";
 import { NewsArticle, NewsSentiment } from "@/types/investment";
 
 export async function analyzeSentiment(
@@ -19,22 +20,7 @@ export async function analyzeSentiment(
     )
     .join("\n");
 
-  const prompt = `
-You are an expert stock market sentiment analyst. Review the following news headlines and snippets for a company and determine the overall market sentiment.
-
-Articles:
-${articlesText}
-
-Analyze if the articles suggest positive sentiment (strong earnings, growth, buy recommendations), negative sentiment (regulatory pressure, declining revenue, lawsuits, negative outlook), or neutral sentiment.
-
-You MUST return ONLY a JSON response in the format below. Do not include markdown formatting or extra text outside the JSON.
-
-{
-  "score": 0, // Integer between -100 (most bearish/negative) and 100 (most bullish/positive)
-  "label": "Positive", // MUST be "Positive", "Negative", or "Neutral"
-  "summary": "A 2-3 sentence summary explaining the current news consensus and drivers of sentiment."
-}
-`;
+  const prompt = buildSentimentPrompt(articlesText);
 
   try {
     const response = await groq.invoke(prompt);
@@ -65,24 +51,33 @@ You MUST return ONLY a JSON response in the format below. Do not include markdow
   } catch (error: any) {
     console.warn("Groq API error in sentiment analyzer, executing keyword fallback:", error.message);
 
-    // Dynamic Keyword-based sentiment heuristic fallback (no API key needed!)
-    const positiveWords = ["buy", "rally", "surge", "growth", "profit", "earnings", "up", "bullish", "leads", "increase", "rise", "success", "president", "strong", "outperform", "gain", "upgrade"];
-    const negativeWords = ["sell", "decline", "fall", "loss", "drop", "down", "bearish", "warning", "lower", "lawsuit", "layoff", "retire", "surprise", "weak", "underperform", "cut", "downgrade"];
+    // Keyword-based sentiment heuristic fallback (no API key needed)
+    const positiveWords = [
+      "buy", "rally", "surge", "growth", "profit", "earnings", "up",
+      "bullish", "leads", "increase", "rise", "success", "strong",
+      "outperform", "gain", "upgrade", "record", "beat", "expansion",
+    ];
+    const negativeWords = [
+      "sell", "decline", "fall", "loss", "drop", "down", "bearish",
+      "warning", "lower", "lawsuit", "layoff", "retire", "surprise",
+      "weak", "underperform", "cut", "downgrade", "miss", "probe",
+      "investigation", "recall", "debt",
+    ];
 
     let posCount = 0;
     let negCount = 0;
 
     for (const article of articles) {
       const textToAnalyze = `${article.title} ${article.snippet}`.toLowerCase();
-      
+
       for (const word of positiveWords) {
-        const regex = new RegExp(`\\b${word}\\b`, 'g');
+        const regex = new RegExp(`\\b${word}\\b`, "g");
         const matches = textToAnalyze.match(regex);
         if (matches) posCount += matches.length;
       }
 
       for (const word of negativeWords) {
-        const regex = new RegExp(`\\b${word}\\b`, 'g');
+        const regex = new RegExp(`\\b${word}\\b`, "g");
         const matches = textToAnalyze.match(regex);
         if (matches) negCount += matches.length;
       }
@@ -101,12 +96,8 @@ You MUST return ONLY a JSON response in the format below. Do not include markdow
       label = "Negative";
     }
 
-    const summary = `Offline keyword consensus scanner analyzed ${articles.length} news items. Detected ${posCount} bullish signals vs ${negCount} bearish indicators, indicating a general ${label.toLowerCase()} market outlook.`;
+    const summary = `Keyword sentiment scanner analyzed ${articles.length} news items. Detected ${posCount} bullish signals vs ${negCount} bearish indicators, indicating a general ${label.toLowerCase()} market outlook.`;
 
-    return {
-      score,
-      label,
-      summary,
-    };
+    return { score, label, summary };
   }
 }

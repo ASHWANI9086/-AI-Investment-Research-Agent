@@ -49,6 +49,31 @@ export interface FinancialData {
   error?: string;
 }
 
+export type RiskSeverity = "LOW" | "MEDIUM" | "HIGH";
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type RiskCategory =
+  | "Financial"
+  | "Regulatory"
+  | "Competitive"
+  | "Macro"
+  | "Operational"
+  | "Reputational";
+
+export interface RiskFactor {
+  category: RiskCategory;
+  title: string;
+  description: string;
+  severity: RiskSeverity;
+}
+
+export interface RiskAssessment {
+  overallRiskScore: number; // 0-100
+  riskLevel: RiskLevel;
+  factors: RiskFactor[];
+  mitigants: string[];
+  summary: string;
+}
+
 export interface InvestmentDecision {
   decision: "INVEST" | "PASS";
   confidence: number; // 0 to 100
@@ -67,5 +92,14 @@ export interface InvestmentState {
   company: string;
   research?: CompanyResearch;
   financials?: FinancialData;
+  riskAssessment?: RiskAssessment;
   decision?: InvestmentDecision;
+}
+
+export interface AnalysisHistoryItem {
+  company: string;
+  symbol?: string;
+  decision?: "INVEST" | "PASS";
+  investmentScore?: number;
+  timestamp: number;
 }

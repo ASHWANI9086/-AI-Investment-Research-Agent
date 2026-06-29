@@ -1,31 +1,63 @@
-import axios from "axios";
-import { groq } from "@/lib/groq";
 import { FinancialData, ChartPoint } from "@/types/investment";
 
+const YF_BASE = "https://query1.finance.yahoo.com";
 const YF_HEADERS = {
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept: "application/json",
 };
 
-function getSeedFromString(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return Math.abs(hash);
+let yfCookie = "";
+let yfCrumb = "";
+let crumbPromise: Promise<string | null> | null = null;
+
+async function getCrumb(): Promise<string | null> {
+  if (yfCrumb) return yfCrumb;
+  if (crumbPromise) return crumbPromise;
+
+  crumbPromise = (async () => {
+    try {
+      const res1 = await fetch("https://fc.yahoo.com/", {
+        headers: YF_HEADERS,
+        cache: "no-store",
+      });
+      
+      const cookieHeader = res1.headers.get("set-cookie");
+      if (cookieHeader) {
+        yfCookie = cookieHeader.split(";")[0];
+      }
+
+      const res2 = await fetch(`${YF_BASE}/v1/test/getcrumb`, {
+        headers: { ...YF_HEADERS, Cookie: yfCookie },
+        cache: "no-store",
+      });
+      
+      yfCrumb = await res2.text();
+      return yfCrumb;
+    } catch (e: any) {
+      console.warn("[yahooTool] Crumb fetch failed:", e.message);
+      return null;
+    }
+  })();
+
+  return crumbPromise;
 }
 
-function generateFallbackChartData(seed: number, baseVal: number): ChartPoint[] {
-  const points = 30;
-  return Array.from({ length: points }).map((_, i) => {
+function getSeed(str: string): number {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  return Math.abs(h);
+}
+
+function generateFallbackChart(seed: number, baseVal: number): ChartPoint[] {
+  return Array.from({ length: 30 }).map((_, i) => {
     const date = new Date();
-    date.setDate(date.getDate() - (points - i) * 3);
+    date.setDate(date.getDate() - (30 - i) * 3);
     const drift = (((seed * (i + 3)) % 201) - 100) / 2000 * baseVal;
-    const close = Math.max(0.01, parseFloat((baseVal + drift).toFixed(2)));
     return {
       date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      close,
-      volume: Math.floor(((seed * (i + 7)) % 5000000)) + 500000,
+      close: Math.max(0.01, parseFloat((baseVal + drift).toFixed(2))),
+      volume: Math.floor(((seed * (i + 7)) % 5_000_000)) + 500_000,
     };
   });
 }
@@ -35,84 +67,67 @@ export async function getFinancialData(company: string): Promise<FinancialData> 
   let companyName = company;
   let market = "STOCKS";
   let locale = "usd";
-  let active = true;
+  const active = true;
 
-  // ─── Step 1: Resolve ticker ────────────────────────────────────────────────
   try {
-    const searchRes = await axios.get(
-      `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(company)}&quotesCount=5`,
-      { headers: YF_HEADERS, timeout: 8000 }
-    );
-    const quotes: any[] = searchRes.data?.quotes || [];
-    const bestQuote = quotes.find((q) => q.quoteType === "EQUITY") || quotes[0];
-    if (bestQuote) {
-      symbol = bestQuote.symbol;
-      companyName = bestQuote.shortname || bestQuote.longname || company;
-      market = bestQuote.exchange || "STOCKS";
+    const res = await fetch(`${YF_BASE}/v1/finance/search?q=${encodeURIComponent(company)}&quotesCount=5`, {
+      headers: YF_HEADERS,
+      cache: "no-store",
+    });
+    const data = await res.json();
+    const quotes: any[] = data.quotes || [];
+    const best = quotes.find((q) => q.quoteType === "EQUITY") || quotes[0];
+    if (best) {
+      symbol = best.symbol;
+      companyName = best.shortname || best.longname || company;
+      market = best.exchange || "STOCKS";
     }
   } catch (e: any) {
-    console.warn("[yahooTool] Search failed:", e.message);
+    console.warn("[yahooTool] Ticker search failed:", e.message);
   }
 
   if (!symbol) {
     symbol = company.trim().toUpperCase().replace(/[^A-Z0-9.]/g, "").slice(0, 6) || "UNKNOWN";
-    companyName = company;
   }
 
-  const seed = getSeedFromString(symbol);
-
-  // ─── Step 2: Live price + 6-month chart ────────────────────────────────────
-  let price = 0;
-  let change = 0;
-  let changePercent = 0;
+  const seed = getSeed(symbol);
+  let price = 0, change = 0, changePercent = 0;
   let chartData: ChartPoint[] = [];
 
   try {
-    const chartRes = await axios.get(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=6mo&interval=1d`,
-      { headers: YF_HEADERS, timeout: 10000 }
-    );
-    const result = chartRes.data?.chart?.result?.[0];
+    const chartRes = await fetch(`${YF_BASE}/v8/finance/chart/${symbol}?range=6mo&interval=1d`, {
+      headers: YF_HEADERS,
+      cache: "no-store",
+    });
+    const chartJson = await chartRes.json();
+    const result = chartJson?.chart?.result?.[0];
+    
     if (result?.meta) {
-      const meta = result.meta;
-      price = meta.regularMarketPrice ?? 0;
-      const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
-      change = parseFloat((price - prevClose).toFixed(2));
-      changePercent = prevClose !== 0
-        ? parseFloat(((change / prevClose) * 100).toFixed(2))
-        : 0;
-      if (meta.symbol) symbol = meta.symbol;
-      if (meta.currency) locale = meta.currency.toLowerCase();
+      const m = result.meta;
+      price = m.regularMarketPrice ?? 0;
+      const prev = m.chartPreviousClose ?? m.previousClose ?? price;
+      change = parseFloat((price - prev).toFixed(2));
+      changePercent = prev !== 0 ? parseFloat(((change / prev) * 100).toFixed(2)) : 0;
+      if (m.symbol) symbol = m.symbol;
+      if (m.currency) locale = m.currency.toLowerCase();
     }
-
     const timestamps: number[] = result?.timestamp || [];
     const closes: (number | null)[] = result?.indicators?.quote?.[0]?.close || [];
     const volumes: (number | null)[] = result?.indicators?.quote?.[0]?.volume || [];
-
-    chartData = timestamps
-      .map((t, i) => {
-        const c = closes[i];
-        if (c == null) return null;
-        return {
-          date: new Date(t * 1000).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-          }),
-          close: parseFloat(c.toFixed(2)),
-          volume: volumes[i] ?? 0,
-        };
-      })
-      .filter(Boolean) as ChartPoint[];
+    chartData = timestamps.map((t, i) => {
+      const c = closes[i];
+      if (c == null) return null;
+      return {
+        date: new Date(t * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        close: parseFloat(c.toFixed(2)),
+        volume: volumes[i] ?? 0,
+      };
+    }).filter(Boolean) as ChartPoint[];
   } catch (e: any) {
-    console.warn(`[yahooTool] Chart failed for ${symbol}:`, e.message);
+    console.warn(`[yahooTool] Chart fetch failed:`, e.message);
   }
+  if (chartData.length === 0 && price > 0) chartData = generateFallbackChart(seed, price);
 
-  if (chartData.length === 0 && price > 0) {
-    chartData = generateFallbackChartData(seed, price);
-  }
-
-  // ─── Step 3: Financial ratios via Tavily targeted search ──────────────────
-  // We use very specific queries to get the actual numbers, not generic pages.
   let marketCap: number | undefined;
   let peRatio: number | undefined;
   let revenue: number | undefined;
@@ -120,97 +135,104 @@ export async function getFinancialData(company: string): Promise<FinancialData> 
   let profitMargin: number | undefined;
   let dataQuality: "live" | "unavailable" = "unavailable";
 
-  const currencyName = locale === "inr" ? "INR" : "USD";
-  const isINR = locale === "inr";
-
   try {
-    // Use two targeted Tavily queries in parallel for speed
-    const [finRes, ratioRes] = await Promise.allSettled([
-      axios.post(
-        "https://api.tavily.com/search",
-        {
-          api_key: process.env.TAVILY_API_KEY,
-          // Target specific financial result pages, not news
-          query: `site:screener.in OR site:moneycontrol.com OR site:wsj.com OR site:macrotrends.net "${companyName}" annual revenue net profit 2024 2025`,
-          max_results: 4,
-          search_depth: "advanced",
-        },
-        { timeout: 15000 }
-      ),
-      axios.post(
-        "https://api.tavily.com/search",
-        {
-          api_key: process.env.TAVILY_API_KEY,
-          query: `${symbol} ${companyName} market capitalization PE ratio profit margin fiscal year 2024 2025 results`,
-          max_results: 4,
-        },
-        { timeout: 15000 }
-      ),
-    ]);
+    const crumb = await getCrumb();
+    if (crumb) {
+      const summaryRes = await fetch(`${YF_BASE}/v10/finance/quoteSummary/${symbol}?modules=defaultKeyStatistics,financialData,summaryDetail&crumb=${crumb}`, {
+        headers: { ...YF_HEADERS, Cookie: yfCookie },
+        cache: "no-store",
+      });
+      const summJson = await summaryRes.json();
+      const result = summJson?.quoteSummary?.result?.[0];
+      
+      if (result) {
+        const fin = result.financialData || {};
+        const stats = result.defaultKeyStatistics || {};
+        const summ = result.summaryDetail || {};
 
-    // Merge results from both searches
-    const results: any[] = [];
-    if (finRes.status === "fulfilled") {
-      results.push(...(finRes.value.data?.results || []));
+        const rawMCap = fin.marketCap?.raw ?? summ.marketCap?.raw ?? stats.enterpriseValue?.raw;
+        marketCap = rawMCap && rawMCap > 0 ? rawMCap : undefined;
+
+        const trailingPE = summ.trailingPE?.raw ?? stats.trailingEps?.raw ? summ.trailingPE?.raw : undefined;
+        peRatio = trailingPE ?? summ.forwardPE?.raw;
+        if (peRatio && (peRatio <= 0 || peRatio > 10000)) peRatio = undefined;
+
+        revenue = fin.totalRevenue?.raw && fin.totalRevenue.raw > 0 ? fin.totalRevenue.raw : undefined;
+        netIncome = fin.netIncomeToCommon?.raw ?? undefined;
+
+        const rawMargin = fin.profitMargins?.raw ?? fin.grossMargins?.raw;
+        if (rawMargin != null && rawMargin !== 0) profitMargin = parseFloat((rawMargin * 100).toFixed(2));
+        if (!profitMargin && revenue && netIncome) profitMargin = parseFloat(((netIncome / revenue) * 100).toFixed(2));
+
+        if (marketCap || peRatio || revenue) {
+          dataQuality = "live";
+          console.log(`[yahooTool] YF quoteSummary fetched successfully for ${symbol}`);
+        }
+      }
     }
-    if (ratioRes.status === "fulfilled") {
-      results.push(...(ratioRes.value.data?.results || []));
-    }
-
-    if (results.length === 0) throw new Error("No Tavily results");
-
-    const rawContent = results
-      .map((r: any) => `URL: ${r.url}\n${r.content}`)
-      .join("\n\n---\n\n")
-      .slice(0, 6000);
-
-    const prompt = `You are a financial data extraction engine. 
-
-Extract VERIFIED financial figures for "${companyName}" (ticker: ${symbol}) from these web sources.
-
-STRICT RULES:
-- ONLY extract numbers explicitly written in the text. NEVER estimate or calculate.  
-- If a metric is not found verbatim in the sources, return null.
-- All monetary values must be in ${currencyName}${isINR ? " (if source shows crore: multiply by 10,000,000 to get INR; do NOT convert to USD)" : ""}.
-- Return ONLY valid JSON. No markdown, no commentary.
-
-SOURCES:
-${rawContent}
-
-JSON output (null for anything not found):
-{
-  "marketCap": <number in ${currencyName} or null>,
-  "peRatio": <trailing P/E number or null>,
-  "revenue": <annual/TTM revenue in ${currencyName} or null>,
-  "netIncome": <annual/TTM net income in ${currencyName} or null>,
-  "profitMargin": <net profit margin as percentage like 12.5 or null>
-}`;
-
-    const llmRes = await groq.invoke(prompt);
-    const match = (llmRes.content as string).match(/\{[\s\S]*?\}/);
-    if (!match) throw new Error("No JSON in LLM response");
-
-    const parsed = JSON.parse(match[0]);
-
-    marketCap = typeof parsed.marketCap === "number" && parsed.marketCap > 0 ? parsed.marketCap : undefined;
-    peRatio = typeof parsed.peRatio === "number" && parsed.peRatio > 0 ? parsed.peRatio : undefined;
-    revenue = typeof parsed.revenue === "number" && parsed.revenue > 0 ? parsed.revenue : undefined;
-    netIncome = typeof parsed.netIncome === "number" ? parsed.netIncome : undefined;
-    profitMargin =
-      typeof parsed.profitMargin === "number"
-        ? parsed.profitMargin
-        : revenue && netIncome
-        ? parseFloat(((netIncome / revenue) * 100).toFixed(2))
-        : undefined;
-
-    const hasData = [marketCap, peRatio, revenue, profitMargin].some((v) => v !== undefined);
-    dataQuality = hasData ? "live" : "unavailable";
-
-    console.log(`[yahooTool] Extracted for ${symbol}:`, { marketCap, peRatio, revenue, profitMargin, dataQuality });
   } catch (e: any) {
-    console.warn(`[yahooTool] Financial extraction failed for ${symbol}:`, e.message);
-    dataQuality = "unavailable";
-    // DO NOT inject fake numbers — leave undefined
+    console.warn(`[yahooTool] quoteSummary failed:`, e.message);
+  }
+
+  // Final fallback to HTML Scraping if APIs fail
+  if (dataQuality === "unavailable") {
+    try {
+      const htmlRes = await fetch(`https://finance.yahoo.com/quote/${symbol}`, {
+        headers: YF_HEADERS,
+        cache: "no-store",
+      });
+      const html = await htmlRes.text();
+      
+      const regex = /<script[^>]*?>([\s\S]*?)<\/script>/gi;
+      let match;
+      while ((match = regex.exec(html)) !== null) {
+        const content = match[1].trim();
+        if (!content) continue;
+        
+        try {
+          let parsed = null;
+          if (content.startsWith('{') && content.endsWith('}')) {
+            parsed = JSON.parse(content);
+          }
+          
+          if (parsed && parsed.body) {
+            const bodyParsed = JSON.parse(parsed.body);
+            if (bodyParsed && bodyParsed.quoteSummary) {
+              const result = bodyParsed.quoteSummary.result?.[0];
+              if (result) {
+                const fin = result.financialData || {};
+                const stats = result.defaultKeyStatistics || {};
+                const summ = result.summaryDetail || {};
+
+                const rawMCap = fin.marketCap?.raw ?? summ.marketCap?.raw ?? stats.enterpriseValue?.raw;
+                marketCap = rawMCap && rawMCap > 0 ? rawMCap : undefined;
+
+                const trailingPE = summ.trailingPE?.raw ?? stats.trailingEps?.raw ? summ.trailingPE?.raw : undefined;
+                peRatio = trailingPE ?? summ.forwardPE?.raw;
+                if (peRatio && (peRatio <= 0 || peRatio > 10000)) peRatio = undefined;
+
+                revenue = fin.totalRevenue?.raw && fin.totalRevenue.raw > 0 ? fin.totalRevenue.raw : undefined;
+                netIncome = fin.netIncomeToCommon?.raw ?? undefined;
+
+                const rawMargin = fin.profitMargins?.raw ?? fin.grossMargins?.raw;
+                if (rawMargin != null && rawMargin !== 0) profitMargin = parseFloat((rawMargin * 100).toFixed(2));
+                if (!profitMargin && revenue && netIncome) profitMargin = parseFloat(((netIncome / revenue) * 100).toFixed(2));
+
+                if (marketCap || peRatio || revenue) {
+                  dataQuality = "live";
+                  console.log(`[yahooTool] Scraped and parsed HTML script tag successfully for ${symbol}`);
+                  break;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          // ignore parsing error
+        }
+      }
+    } catch(e: any) {
+      console.warn(`[yahooTool] HTML scraping failed:`, e.message);
+    }
   }
 
   return {

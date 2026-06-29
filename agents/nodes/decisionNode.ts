@@ -1,10 +1,12 @@
 import { groq } from "@/lib/groq";
+import { SYSTEM_PROMPTS } from "@/lib/prompts";
 import { InvestmentDecision } from "@/types/investment";
 
 export async function decisionNode(state: any) {
   const company = state.company;
   const research = state.research;
   const financials = state.financials;
+  const riskAssessment = state.riskAssessment;
 
   console.log(`[decisionNode] Evaluating investment recommendation for "${company}"...`);
 
@@ -13,7 +15,9 @@ export async function decisionNode(state: any) {
     val != null ? `${prefix}${val}${suffix}` : "DATA_UNAVAILABLE";
 
   const prompt = `
-You are a senior investment analyst at a top-tier hedge fund. You are tasked with analyzing a potential investment in ${company}.
+${SYSTEM_PROMPTS.ANALYST}
+
+You are tasked with analyzing a potential investment in ${company}.
 
 Here is the gathered research and financial details:
 
@@ -40,12 +44,20 @@ IMPORTANT: If any field above shows "DATA_UNAVAILABLE", do NOT invent or estimat
 - Recent News Headlines:
 ${research?.news?.map((n: any) => `- ${n.title} (${n.source})`).join("\n") || "No news available."}
 
-4. GENERAL WEB RESEARCH
+4. RISK ASSESSMENT (from dedicated risk analysis agent)
+- Overall Risk Score: ${riskAssessment?.overallRiskScore ?? "N/A"}/100
+- Risk Level: ${riskAssessment?.riskLevel ?? "MEDIUM"}
+- Key Risk Factors:
+${riskAssessment?.factors?.map((f: any) => `  - [${f.severity}] ${f.title}: ${f.description}`).join("\n") || "  No risk factors available."}
+- Risk Mitigants:
+${riskAssessment?.mitigants?.map((m: string) => `  - ${m}`).join("\n") || "  None identified."}
+
+5. GENERAL WEB RESEARCH
 ${research?.generalAnalysis?.slice(0, 1500) || "N/A"}
 
 Your task is to weigh all of the information above and issue an investment recommendation:
-- "INVEST" if the company shows strong financial health, reasonable valuation (or high growth justifying valuation), positive news momentum, and strong market positioning.
-- "PASS" if the risks outweigh the strengths, valuation is excessive, growth is stagnating, profit margins are thin, or there is negative news sentiment/legal headwinds.
+- "INVEST" if the company shows strong financial health, reasonable valuation (or high growth justifying valuation), positive news momentum, and manageable risk.
+- "PASS" if the risks outweigh the strengths, valuation is excessive, growth is stagnating, profit margins are thin, or there is significant negative news sentiment/legal headwinds.
 
 Provide a comprehensive, analytical response. You MUST return ONLY a JSON response in the format below. Do not include markdown formatting or extra text. Replace all placeholder values with your own calculated data.
 
@@ -66,7 +78,6 @@ Provide a comprehensive, analytical response. You MUST return ONLY a JSON respon
   "summary": "Your detailed professional analyst rationale here."
 }
 `;
-
   try {
     const response = await groq.invoke(prompt);
     const text = response.content as string;

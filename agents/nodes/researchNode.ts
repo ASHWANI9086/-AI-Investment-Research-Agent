@@ -1,33 +1,18 @@
 import { searchCompany } from "@/tools/tavilyTool";
-import { fetchCompanyNews } from "@/tools/newsTool";
-import { analyzeSentiment } from "@/tools/sentimentTool";
-import { CompanyResearch } from "@/types/investment";
 
+/**
+ * researchNode — general company research node.
+ * Fetches an overview of the company's business model, market position,
+ * and competitive landscape via Tavily web search.
+ * News fetching and sentiment are handled separately by newsNode.
+ */
 export async function researchNode(state: any) {
   const company = state.company;
+  console.log(`[researchNode] Starting web research on "${company}"...`);
 
-  console.log(`[researchNode] Starting research on "${company}"...`);
-  
-  // Fetch general search results and news concurrently
-  const [generalRes, news] = await Promise.all([
-    searchCompany(company).catch((err) => {
-      console.error("General research search failed:", err);
-      return null;
-    }),
-    fetchCompanyNews(company).catch((err) => {
-      console.error("News fetch failed:", err);
-      return [];
-    }),
-  ]);
-
-  // Run sentiment analysis on retrieved news
-  const sentiment = await analyzeSentiment(news).catch((err) => {
-    console.error("Sentiment analysis failed:", err);
-    return {
-      score: 0,
-      label: "Neutral" as const,
-      summary: "Sentiment analysis failed due to internal error.",
-    };
+  const generalRes = await searchCompany(company).catch((err) => {
+    console.error("[researchNode] General web search failed:", err);
+    return null;
   });
 
   const generalAnalysis =
@@ -35,13 +20,13 @@ export async function researchNode(state: any) {
       ?.map((r: any) => `Source: ${r.title}\nContent: ${r.content}`)
       .join("\n\n") || "No general research details found.";
 
-  const research: CompanyResearch = {
-    news,
-    sentiment,
-    generalAnalysis,
-  };
-
+  // Initialise research state with just general analysis.
+  // newsNode will add news[] and sentiment later in the pipeline.
   return {
-    research,
+    research: {
+      news: [],
+      sentiment: { score: 0, label: "Neutral", summary: "" },
+      generalAnalysis,
+    },
   };
 }

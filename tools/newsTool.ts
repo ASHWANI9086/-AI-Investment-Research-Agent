@@ -1,17 +1,21 @@
 import axios from "axios";
+import { getEnv } from "@/lib/env";
 import { NewsArticle } from "@/types/investment";
+
+const TAVILY_API_KEY = getEnv("TAVILY_API_KEY");
 
 export async function fetchCompanyNews(company: string): Promise<NewsArticle[]> {
   try {
     const response = await axios.post(
       "https://api.tavily.com/search",
       {
-        api_key: process.env.TAVILY_API_KEY,
-        query: `${company} stock news market updates analysis`,
-        max_results: 6,
+        api_key: TAVILY_API_KEY,
+        query: `${company} stock news market updates earnings results 2025`,
+        max_results: 8,
         topic: "news",
-        days: 10,
-      }
+        days: 14,
+      },
+      { timeout: 15000 }
     );
 
     const results = response.data?.results || [];
@@ -20,7 +24,7 @@ export async function fetchCompanyNews(company: string): Promise<NewsArticle[]> 
       try {
         sourceName = new URL(item.url).hostname.replace("www.", "");
       } catch {
-        // Fallback if URL is invalid
+        // fallback — URL invalid
       }
       return {
         title: item.title || "Company News Update",
