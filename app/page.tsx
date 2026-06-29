@@ -27,6 +27,11 @@ export default function Home() {
   const [loadStep, setLoadStep] = useState(0);
   const [result, setResult] = useState<InvestmentState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Chatbot state
   const [chatMessage, setChatMessage] = useState("");
@@ -382,7 +387,7 @@ export default function Home() {
                 </div>
 
                 <div className="h-72 w-full">
-                  {result.financials?.chartData && result.financials.chartData.length > 0 ? (
+                  {isMounted && result.financials?.chartData && result.financials.chartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={result.financials.chartData}>
                         <defs>
@@ -427,6 +432,10 @@ export default function Home() {
                         />
                       </AreaChart>
                     </ResponsiveContainer>
+                  ) : result.financials?.chartData && result.financials.chartData.length > 0 ? (
+                    <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
+                      Initializing Stock Price Trend...
+                    </div>
                   ) : (
                     <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
                       No historical chart data available.
