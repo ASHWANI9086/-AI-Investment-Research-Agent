@@ -1,64 +1,38 @@
-import { groq } from "@/lib/groq";
-import { searchCompany } from "@/tools/tavilyTool";
-import { getFinancialData } from "@/tools/yahooTool";
+import { investmentGraph } from "@/agents/graph";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const company = body.company;
 
-    const research = await searchCompany(company);
-    const financials = await getFinancialData(company);
-
-    const prompt = `
-You are a professional investment analyst.
-
-Company: ${company}
-
-Research:
-${JSON.stringify(research)}
-
-Financial Data:
-${JSON.stringify(financials)}
-
-Return ONLY valid JSON:
-
-{
-  "decision":"INVEST or PASS",
-  "confidence":0,
-  "investmentScore":0,
-  "strengths":[""],
-  "risks":[""],
-  "summary":""
-}
-`;
-
-    const response = await groq.invoke(prompt);
-
-    let result;
-
-    try {
-      result = JSON.parse(response.content as string);
-    } catch {
-      result = {
-        decision: "PASS",
-        confidence: 50,
-        investmentScore: 50,
-        summary: String(response.content),
-      };
+    if (!company || typeof company !== "string" || !company.trim()) {
+      return Response.json(
+        { error: "Company name is required." },
+        { status: 400 }
+      );
     }
 
+    console.log(`[API Analyze] Invoking LangGraph for company: "${company}"`);
+
+    // Run the compiled StateGraph with the initial state
+    const result = await investmentGraph.invoke({
+      company: company.trim(),
+    });
+
+    console.log(`[API Analyze] LangGraph execution complete for "${company}".`);
+
+    // The result object contains the final state of the graph
     return Response.json({
-      company,
-      financials,
-      result,
+      company: result.company,
+      research: result.research,
+      financials: result.financials,
+      decision: result.decision,
     });
   } catch (error: any) {
-    console.error(error);
-
+    console.error("Error in API analyze route:", error);
     return Response.json(
       {
-        error: error.message,
+        error: error.message || "Failed to analyze company.",
       },
       {
         status: 500,

@@ -26,37 +26,37 @@ const graph =
   );
 
 graph.addNode(
-  "research",
+  "researcherNode",
   researchNode
 );
 
 graph.addNode(
-  "finance",
+  "financeNode",
   financeNode
 );
 
 graph.addNode(
-  "decision",
+  "decisionMakerNode",
   decisionNode
 );
 
 graph.addEdge(
   START,
-  "research"
+  "researcherNode" as any
 );
 
 graph.addEdge(
-  "research",
-  "finance"
+  "researcherNode" as any,
+  "financeNode" as any
 );
 
 graph.addEdge(
-  "finance",
-  "decision"
+  "financeNode" as any,
+  "decisionMakerNode" as any
 );
 
 graph.addEdge(
-  "decision",
+  "decisionMakerNode" as any,
   END
 );
 
