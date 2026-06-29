@@ -44,19 +44,23 @@ Your task is to weigh all of the information above and issue an investment recom
 - "INVEST" if the company shows strong financial health, reasonable valuation (or high growth justifying valuation), positive news momentum, and strong market positioning.
 - "PASS" if the risks outweigh the strengths, valuation is excessive, growth is stagnating, profit margins are thin, or there is negative news sentiment/legal headwinds.
 
-Provide a comprehensive, analytical response. You MUST return ONLY a JSON response in the format below. Do not include markdown formatting or extra text.
+Provide a comprehensive, analytical response. You MUST return ONLY a JSON response in the format below. Do not include markdown formatting or extra text. Replace all placeholder values with your own calculated data.
 
 {
-  "decision": "INVEST", // Or "PASS"
-  "confidence": 85, // An integer between 0 and 100 representing your confidence level in the decision
-  "investmentScore": 78, // An integer between 0 and 100 representing the company's overall investment score
+  "decision": "WRITE_INVEST_OR_PASS_HERE", 
+  "confidence": 0, // Write your calculated confidence integer (between 0 and 100) based on analysis
+  "investmentScore": 0, // Write your calculated investment score integer (between 0 and 100) based on analysis
   "strengths": [
-    "List 3 to 4 specific core strengths of this company based on the financial and research details."
+    "Specific core strength 1",
+    "Specific core strength 2",
+    "Specific core strength 3"
   ],
   "risks": [
-    "List 3 to 4 specific key risks or warning signs based on the financial and research details."
+    "Specific key risk 1",
+    "Specific key risk 2",
+    "Specific key risk 3"
   ],
-  "summary": "A detailed 3-4 sentence professional analyst explanation of why you made this recommendation, synthesizing the valuation, sentiment, and growth potential."
+  "summary": "Your detailed professional analyst rationale here."
 }
 `;
 
