@@ -23,15 +23,15 @@ START → Research → Finance → News → Risk → Decision → END
 | **Decision** | Synthesise all signals into INVEST/PASS + structured rationale | Groq LLM (llama-3.3-70b) |
 
 **Key features:**
-- 🤖 LangGraph-orchestrated multi-agent workflow
-- 📊 Live Yahoo Finance price data + 6-month price chart
-- 📰 Real-time news fetching and AI sentiment scoring
-- ⚠️ Dedicated risk assessment with factor-by-factor breakdown
-- 💬 Interactive AI chatbot for post-analysis Q&A
-- 🕐 Search history (localStorage-based watchlist)
-- 📋 One-click copy report
-- 🌍 Works for global stocks (US, India, UK, EU markets)
-- 🔄 Robust fallback scoring when APIs are rate-limited
+- 1) LangGraph-orchestrated multi-agent workflow
+- 2) Live Yahoo Finance price data + 6-month price chart
+- 3) Real-time news fetching and AI sentiment scoring
+- 4) Dedicated risk assessment with factor-by-factor breakdown
+- 5) Interactive AI chatbot for post-analysis Q&A
+- 6) Search history (localStorage-based watchlist)
+- 7) One-click copy report
+- 8) Works for global stocks (US, India, UK, EU markets)
+- 9) Robust fallback scoring when APIs are rate-limited
 
 ---
 
