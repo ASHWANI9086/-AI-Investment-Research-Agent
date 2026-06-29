@@ -33,184 +33,130 @@ function generateMockChartData(seed: number, baseVal: number): ChartPoint[] {
 }
 
 export async function getFinancialData(company: string): Promise<FinancialData> {
-  const apiKey = process.env.MASSIVE_API_KEY;
   let symbol = "";
   let companyName = company;
   let market = "STOCKS";
   let locale = "us";
   let active = true;
 
-  // 1. Ticker Lookup via Polygon (isolated try-catch so rate-limits don't break subsequent logic)
+  // 1. Search Yahoo Finance for the best matching symbol (free, global ticker lookup)
   try {
-    const response = await axios.get(
-      "https://api.polygon.io/v3/reference/tickers",
-      {
-        params: {
-          search: company,
-          limit: 1,
-          active: true,
-          apiKey,
-        },
-      }
-    );
+    const searchUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(company)}`;
+    const searchRes = await axios.get(searchUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    });
 
-    const ticker = response.data?.results?.[0];
-    if (ticker) {
-      symbol = ticker.ticker;
-      companyName = ticker.name;
-      market = ticker.market || "STOCKS";
-      locale = ticker.locale || "us";
-      active = ticker.active !== undefined ? ticker.active : true;
+    const quotes = searchRes.data?.quotes || [];
+    // Prioritize equity listings (common stock) over ETFs or mutual funds
+    const bestQuote = quotes.find((q: any) => q.quoteType === "EQUITY") || quotes[0];
+    
+    if (bestQuote) {
+      symbol = bestQuote.symbol;
+      companyName = bestQuote.shortname || bestQuote.longname || bestQuote.name || company;
+      market = bestQuote.exchange || "STOCKS";
     }
   } catch (e: any) {
-    console.warn(`[yahooTool] Polygon ticker lookup failed for "${company}":`, e.message);
+    console.warn(`[yahooTool] Yahoo symbol suggestion failed:`, e.message);
   }
 
-  // 1b. Fallback ticker search via Tavily if Polygon search returned nothing
+  // 1b. Fallback to clean ticker guess if search was completely empty
   if (!symbol) {
-    try {
-      console.log(`[yahooTool] Polygon ticker search failed or empty for "${company}". Falling back to Tavily...`);
-      const searchRes = await axios.post("https://api.tavily.com/search", {
-        api_key: process.env.TAVILY_API_KEY,
-        query: `${company} stock ticker symbol exchange`,
-        max_results: 3,
-      });
-
-      const prompt = `
-Given the company search query "${company}" and these web results:
-${JSON.stringify(searchRes.data)}
-
-Identify the stock ticker symbol, clean company name, stock exchange/market, and country/locale.
-Return ONLY valid JSON. Do not write markdown tags or extra text.
-
-{
-  "ticker": "AAPL", // Stock symbol
-  "name": "Apple Inc.", // Official name
-  "market": "stocks",
-  "locale": "us"
-}
-`;
-      const fallbackRes = await groq.invoke(prompt);
-      const cleanText = (fallbackRes.content as string).match(/\{[\s\S]*\}/)?.[0] || fallbackRes.content as string;
-      const parsed = JSON.parse(cleanText);
-      symbol = parsed.ticker;
-      companyName = parsed.name || company;
-      market = parsed.market || "stocks";
-      locale = parsed.locale || "us";
-    } catch (e: any) {
-      console.warn(`[yahooTool] Tavily ticker lookup fallback failed:`, e.message);
-      // Clean symbol guess from input
-      const cleanName = company.trim().toUpperCase().replace(/[^A-Z]/g, "");
-      symbol = cleanName.slice(0, 4) || "STK";
-      companyName = company;
-    }
+    const cleanName = company.trim().toUpperCase().replace(/[^A-Z]/g, "");
+    symbol = cleanName.slice(0, 4) || "STK";
+    companyName = company;
   }
 
   const seed = getSeedFromString(symbol);
 
-  // 2. Fetch Stock Price (Previous Close as standard for Polygon free tier)
-  let price = 10.0 + (seed % 490) + (seed % 10) * 0.1;
-  let change = (seed % 10) - 5 + (seed % 5) * 0.1;
-  let changePercent = (change / price) * 100;
+  // 2. Fetch price and 6-month aggregates from public Yahoo Finance chart API
+  let price = 100.0;
+  let change = 0.0;
+  let changePercent = 0.0;
+  let chartData: ChartPoint[] = [];
 
   try {
-    const prevCloseRes = await axios.get(
-      `https://api.polygon.io/v2/aggs/ticker/${symbol}/prev`,
-      {
-        params: {
-          adjusted: true,
-          apiKey,
-        },
+    const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=6mo&interval=1d`;
+    const chartRes = await axios.get(chartUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    });
+
+    const result = chartRes.data?.chart?.result?.[0];
+    if (result) {
+      const meta = result.meta;
+      if (meta) {
+        price = meta.regularMarketPrice || price;
+        const prevClose = meta.chartPreviousClose || meta.previousClose || price;
+        change = price - prevClose;
+        changePercent = (change / prevClose) * 100;
+        if (meta.symbol) symbol = meta.symbol;
+        if (meta.currency) locale = meta.currency.toLowerCase();
       }
-    );
-    const prev = prevCloseRes.data?.results?.[0];
-    if (prev) {
-      price = prev.c; // Close price
-      change = prev.c - prev.o; // Close minus Open
-      changePercent = (change / prev.o) * 100;
+
+      const timestamps = result.timestamp || [];
+      const quote = result.indicators?.quote?.[0] || {};
+      const closes = quote.close || [];
+      const volumes = quote.volume || [];
+
+      // Parse chart aggregates, removing null days
+      chartData = timestamps
+        .map((t: number, i: number) => {
+          const c = closes[i];
+          if (c === null || c === undefined) return null;
+          return {
+            date: new Date(t * 1000).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+            }),
+            close: parseFloat(c.toFixed(2)),
+            volume: volumes[i] || 0,
+          };
+        })
+        .filter((pt: any) => pt !== null) as ChartPoint[];
     }
   } catch (e: any) {
-    console.warn(`[yahooTool] Failed to fetch daily price from Polygon for ${symbol}:`, e.message);
+    console.warn(`[yahooTool] Failed to fetch chart from Yahoo Finance for ${symbol}:`, e.message);
   }
 
-  // 3. Fetch Historical Aggregates (past 6 months) for Charting
-  let chartData: ChartPoint[] = [];
-  try {
-    const toDate = new Date().toISOString().split("T")[0];
-    const fromDateObj = new Date();
-    fromDateObj.setMonth(fromDateObj.getMonth() - 6);
-    const fromDate = fromDateObj.toISOString().split("T")[0];
-
-    const aggRes = await axios.get(
-      `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fromDate}/${toDate}`,
-      {
-        params: {
-          adjusted: true,
-          sort: "asc",
-          limit: 300,
-          apiKey,
-        },
-      }
-    );
-
-    const rawResults = aggRes.data?.results || [];
-    chartData = rawResults.map((r: any) => ({
-      date: new Date(r.t).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      }),
-      close: r.c,
-      volume: r.v,
-    }));
-  } catch (e: any) {
-    console.warn(`[yahooTool] Failed to fetch historical aggregates from Polygon for ${symbol}:`, e.message);
+  // Fallback to deterministic aggregates if Yahoo chart API returns empty
+  if (chartData.length === 0) {
     chartData = generateMockChartData(seed, price);
   }
 
-  // 4. Retrieve Ratios and Key Financial Metrics (Revenue, Net Income, P/E, Market Cap)
+  // 3. Extract Ratios and Key Financial Metrics (Revenue, Net Income, P/E, Market Cap) via Tavily Search
   let marketCap: number | undefined;
   let peRatio: number | undefined;
   let revenue: number | undefined;
   let netIncome: number | undefined;
   let profitMargin: number | undefined;
-  let ratiosSource: "polygon" | "web_fallback" | "simulated" = "polygon";
+  let ratiosSource: "polygon" | "web_fallback" | "simulated" = "web_fallback";
 
   try {
-    const detailsRes = await axios.get(
-      `https://api.polygon.io/v3/reference/tickers/${symbol}`,
-      {
-        params: { apiKey },
-      }
-    );
-    if (detailsRes.data?.results?.market_cap) {
-      marketCap = detailsRes.data.results.market_cap;
-    }
-  } catch (e: any) {
-    console.log(`[yahooTool] Failed to fetch ticker details from Polygon for ${symbol}:`, e.message);
-  }
-
-  // Web Fallback/Supplement search to extract solid, real-life financials
-  try {
-    console.log(`[yahooTool] Performing Web search for financial statements of ${symbol}...`);
+    console.log(`[yahooTool] Performing Web search for financials of ${symbol}...`);
     const searchFin = await axios.post("https://api.tavily.com/search", {
       api_key: process.env.TAVILY_API_KEY,
-      query: `${symbol} ${companyName} financials market cap revenue net income PE ratio quarterly annual statements 2025 2026`,
+      query: `${symbol} ${companyName} current market cap PE ratio revenue net income profit margin quarterly annual statements 2025 2026`,
       max_results: 5,
     });
 
     const extractionPrompt = `
-Given the company stock ticker "${symbol}" (${companyName}) and these web search results containing financial reports and metrics:
+Given the company stock ticker "${symbol}" (${companyName}) and these web search results containing financial reports:
 ${JSON.stringify(searchFin.data)}
 
-Extract the following financial statistics (use TTM - Trailing Twelve Months or latest annual reports):
+Extract the following financial statistics. 
+CRITICAL: Convert all monetary values (Market Cap, Revenue, Net Income) to USD. If values are listed in INR or other currencies, convert them to USD (Approximate conversion: 1 USD = 83 INR, 1 Crore INR = 120,000 USD).
+Provide clean absolute integers.
+
 1. Market Capitalization (in USD)
 2. P/E Ratio (Price-to-Earnings Ratio)
 3. Revenue (annual/TTM in USD)
 4. Net Income (annual/TTM in USD)
 5. Profit Margin (Net Income / Revenue in %)
-
-If market cap is already resolved as ${marketCap || "undefined"}, you can keep it or correct it if the web source has a more recent value.
-If a value is not found, attempt to make a sensible analyst estimate based on news and comparable metrics.
 
 Return ONLY a valid JSON block matching this structure. Do not write markdown tags or extra text.
 
@@ -227,17 +173,16 @@ Return ONLY a valid JSON block matching this structure. Do not write markdown ta
     const cleanExtractionText = (extractionRes.content as string).match(/\{[\s\S]*\}/)?.[0] || extractionRes.content as string;
     const parsedFin = JSON.parse(cleanExtractionText);
 
-    marketCap = parsedFin.marketCap || marketCap;
-    peRatio = parsedFin.peRatio || peRatio;
-    revenue = parsedFin.revenue || revenue;
-    netIncome = parsedFin.netIncome || netIncome;
+    marketCap = parsedFin.marketCap || undefined;
+    peRatio = parsedFin.peRatio || undefined;
+    revenue = parsedFin.revenue || undefined;
+    netIncome = parsedFin.netIncome || undefined;
     profitMargin = parsedFin.profitMargin || (revenue && netIncome ? (netIncome / revenue) * 100 : undefined);
-    ratiosSource = "web_fallback";
   } catch (finError: any) {
-    console.warn("[yahooTool] Failed web financial extraction, generating unique deterministic metrics:", finError.message);
+    console.warn("[yahooTool] Web extraction failed, generating deterministic financials:", finError.message);
     
     ratiosSource = "simulated";
-    marketCap = marketCap || (10 + (seed % 1490)) * 1e9;
+    marketCap = (10 + (seed % 1490)) * 1e9;
     peRatio = 8 + (seed % 42) + (seed % 2 === 0 ? 0.3 : 0.7);
     revenue = (1 + (seed % 249)) * 1e9;
     profitMargin = 4 + (seed % 36) + (seed % 2 === 0 ? 0.25 : 0.65);

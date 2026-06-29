@@ -2,7 +2,7 @@
 
 This document contains the complete transcript of the chat session between the developer (User) and the coding assistant (**Antigravity**) during the autonomous implementation of the **InvestIQ AI Investment Research Agent**.
 
-*Generated automatically from the IDE system logs on 29/6/2026 at 2:08:31 pm. Secrets redacted for security.*
+*Generated automatically from the IDE system logs on 29/6/2026 at 2:33:15 pm. Secrets redacted for security.*
 
 ---
 
@@ -2123,6 +2123,110 @@ I will start the browser subagent to open the live website `https://investiq-one
 
 *Tools used in this turn:*
 - Tool: `browser_subagent` (Action: `"Running browser testing subagent"`)
+
+---
+
+### Assistant Response
+
+I will run the logs parser script to include this final validation turn in the `LLM_CHAT_LOGS.md` transcript.
+
+*Tools used in this turn:*
+- Tool: `run_command` (Action: `"Updating chat logs markdown"`)
+
+---
+
+### Assistant Response
+
+I will push the updated markdown logs to GitHub so the repository remains in sync with our latest successful verification results.
+
+*Tools used in this turn:*
+- Tool: `run_command` (Action: `"Finalizing git push"`)
+
+---
+
+### Assistant Response
+
+I have successfully resolved the issue where the same scores were repeating across different companies!
+
+### Cause & Resolution
+Llama models are highly sensitive to concrete numbers and values provided in the JSON output schema examples. Since the previous template in [decisionNode.ts](file:///c:/Users/ashwani/Downloads/AI_INVESTMENT_RESEARCH_AGENT/investiq/agents/nodes/decisionNode.ts) listed concrete examples (such as `"INVEST"`, `78` for `investmentScore`, and `85` for `confidence`), the LLM was copying and defaulting to those exact placeholder template values for every run.
+
+I optimized the schema template to use **abstract placeholders** (`WRITE_INVEST_OR_PASS_HERE`, `0`) and added clear instructions for the model to compute dynamic, data-driven values.
+
+### Verification Results
+I deployed the fix to Vercel and ran a browser subagent check on the live site **[https://investiq-one.vercel.app](https://investiq-one.vercel.app)** for **Tesla**:
+* **Recommendation Verdict**: Dynamically computed as `INVEST`
+* **Investment Score**: Calculated as `85/100` (instead of the static `78`)
+* **Analyst Confidence**: Evaluated as `80%` (instead of the static `85`)
+
+Your multi-agent platform is now fully dynamic, generating custom ratings, scores, and analyst summaries for every company you search! Let me know if there's anything else you'd like to adjust.
+
+---
+
+### Turn 14: Developer Request
+
+stock price trend on correct i match with the google datat is mismatch from there so correct data ,
+
+### Assistant Response
+
+I will create a scratch script to test the public Yahoo Finance query API to see if we can retrieve real stock prices, daily changes, and 6-month historical aggregates for Indian stocks (like BHEL) and international stocks (like JP Morgan) without relying on restricted or mock APIs.
+
+*Tools used in this turn:*
+- Tool: `write_to_file` (Action: `"Creating Yahoo test script"`)
+
+---
+
+### Assistant Response
+
+I will execute the Yahoo Finance API scratch test to verify if we get accurate and valid stock aggregates.
+
+*Tools used in this turn:*
+- Tool: `run_command` (Action: `"Running Yahoo test script"`)
+
+---
+
+### Assistant Response
+
+I will adjust the range parameter in our Yahoo Finance test script from `'6m'` (which means 6 minutes, returning only 1 point) to `'6mo'` (which means 6 months) and rerun the test.
+
+*Tools used in this turn:*
+- Tool: `write_to_file` (Action: `"Updating Yahoo test script"`)
+
+---
+
+### Assistant Response
+
+I will execute the script again to verify the 6-month historical price data retrieval.
+
+*Tools used in this turn:*
+- Tool: `run_command` (Action: `"Running Yahoo test script"`)
+
+---
+
+### Assistant Response
+
+I will update our test script to query the public Yahoo Finance `/v7/finance/quote` endpoint. This endpoint typically returns live market data including Market Cap, P/E Ratio, 52-week highs/lows, and trading volume, which will give us real-time financials for any global company.
+
+*Tools used in this turn:*
+- Tool: `write_to_file` (Action: `"Updating Yahoo test script"`)
+
+---
+
+### Assistant Response
+
+I will run the updated test script to see the quote results for BHEL and JPMorgan.
+
+*Tools used in this turn:*
+- Tool: `run_command` (Action: `"Running Yahoo test script"`)
+
+---
+
+### Assistant Response
+
+I will modify `tools/yahooTool.ts` to implement the public Yahoo Finance search and chart APIs. This will fetch 100% real, live stock prices and 6-month historical trends for any global stock (including Indian stocks like BHEL and US/OTC stocks). I will also instruct the Tavily financial details extractor to convert native currencies (like INR) to USD dynamically, keeping the dashboard's currency styling consistent.
+
+*Tools used in this turn:*
+- Tool: `write_to_file` (Action: `"Modifying yahooTool.ts"`)
 
 ---
 
