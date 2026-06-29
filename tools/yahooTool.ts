@@ -2,7 +2,7 @@ import axios from "axios";
 import { groq } from "@/lib/groq";
 import { FinancialData, ChartPoint } from "@/types/investment";
 
-// Helper to hash ticker strings into deterministic seeds
+// Helper to hash ticker strings into deterministic seeds (only used for chart fallback)
 function getSeedFromString(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -11,23 +11,18 @@ function getSeedFromString(str: string): number {
   return Math.abs(hash);
 }
 
-// Reusable mock chart data generator based on a deterministic walk
-function generateMockChartData(seed: number, baseVal: number): ChartPoint[] {
-  const mockPoints = 30;
-  return Array.from({ length: mockPoints }).map((_, i) => {
+// Fallback chart data ONLY (never used for financial ratios)
+function generateFallbackChartData(seed: number, baseVal: number): ChartPoint[] {
+  const points = 30;
+  return Array.from({ length: points }).map((_, i) => {
     const date = new Date();
-    date.setDate(date.getDate() - (mockPoints - i) * 3);
-    
-    // Generate a smooth deterministic price walk using seed and index
-    const angle = (i / mockPoints) * Math.PI * 2;
-    const trend = Math.sin(angle) * (baseVal * 0.1) + ((seed % 10) / 10) * baseVal * (i / mockPoints) * 0.15;
-    const randomNoise = ((i * seed) % 17 - 8) / 100 * baseVal; // deterministic pseudo-random noise
-    const closePrice = Math.max(1.0, baseVal + trend + randomNoise);
-
+    date.setDate(date.getDate() - (points - i) * 3);
+    const drift = ((seed * (i + 1)) % 100 - 50) / 1000 * baseVal;
+    const close = Math.max(0.01, baseVal + drift);
     return {
       date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      close: parseFloat(closePrice.toFixed(2)),
-      volume: Math.floor(((seed * (i + 1)) % 4000000)) + 1000000,
+      close: parseFloat(close.toFixed(2)),
+      volume: Math.floor(((seed * (i + 7)) % 5000000)) + 500000,
     };
   });
 }
@@ -36,157 +31,165 @@ export async function getFinancialData(company: string): Promise<FinancialData> 
   let symbol = "";
   let companyName = company;
   let market = "STOCKS";
-  let locale = "us";
+  let locale = "usd";
   let active = true;
 
-  // 1. Search Yahoo Finance for the best matching symbol (free, global ticker lookup)
+  // ─── Step 1: Resolve ticker via Yahoo Finance search ───────────────────────
   try {
     const searchUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(company)}`;
     const searchRes = await axios.get(searchUrl, {
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
       },
+      timeout: 8000,
     });
-
     const quotes = searchRes.data?.quotes || [];
-    // Prioritize equity listings (common stock) over ETFs or mutual funds
+    // Prefer equity (common stock) over ETFs/mutual funds
     const bestQuote = quotes.find((q: any) => q.quoteType === "EQUITY") || quotes[0];
-    
     if (bestQuote) {
       symbol = bestQuote.symbol;
-      companyName = bestQuote.shortname || bestQuote.longname || bestQuote.name || company;
+      companyName = bestQuote.shortname || bestQuote.longname || company;
       market = bestQuote.exchange || "STOCKS";
     }
   } catch (e: any) {
-    console.warn(`[yahooTool] Yahoo symbol suggestion failed:`, e.message);
+    console.warn(`[yahooTool] Yahoo search failed:`, e.message);
   }
 
-  // 1b. Fallback to clean ticker guess if search was completely empty
   if (!symbol) {
-    const cleanName = company.trim().toUpperCase().replace(/[^A-Z]/g, "");
-    symbol = cleanName.slice(0, 4) || "STK";
+    symbol = company.trim().toUpperCase().replace(/[^A-Z0-9.]/g, "").slice(0, 6) || "UNKNOWN";
     companyName = company;
   }
 
   const seed = getSeedFromString(symbol);
 
-  // 2. Fetch price and 6-month aggregates from public Yahoo Finance chart API
-  let price = 100.0;
-  let change = 0.0;
-  let changePercent = 0.0;
+  // ─── Step 2: Fetch live price + 6-month chart from Yahoo Finance ───────────
+  let price = 0;
+  let change = 0;
+  let changePercent = 0;
   let chartData: ChartPoint[] = [];
 
   try {
     const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=6mo&interval=1d`;
     const chartRes = await axios.get(chartUrl, {
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
       },
+      timeout: 10000,
     });
 
     const result = chartRes.data?.chart?.result?.[0];
-    if (result) {
+    if (result?.meta) {
       const meta = result.meta;
-      if (meta) {
-        price = meta.regularMarketPrice || price;
-        const prevClose = meta.chartPreviousClose || meta.previousClose || price;
-        change = price - prevClose;
-        changePercent = (change / prevClose) * 100;
-        if (meta.symbol) symbol = meta.symbol;
-        if (meta.currency) locale = meta.currency.toLowerCase();
-      }
-
-      const timestamps = result.timestamp || [];
-      const quote = result.indicators?.quote?.[0] || {};
-      const closes = quote.close || [];
-      const volumes = quote.volume || [];
-
-      // Parse chart aggregates, removing null days
-      chartData = timestamps
-        .map((t: number, i: number) => {
-          const c = closes[i];
-          if (c === null || c === undefined) return null;
-          return {
-            date: new Date(t * 1000).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-            }),
-            close: parseFloat(c.toFixed(2)),
-            volume: volumes[i] || 0,
-          };
-        })
-        .filter((pt: any) => pt !== null) as ChartPoint[];
+      price = meta.regularMarketPrice ?? 0;
+      const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
+      change = price - prevClose;
+      changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+      if (meta.symbol) symbol = meta.symbol;
+      // Store the raw currency string (e.g. "INR", "USD")
+      if (meta.currency) locale = meta.currency.toLowerCase();
     }
+
+    const timestamps: number[] = result?.timestamp || [];
+    const closes: (number | null)[] = result?.indicators?.quote?.[0]?.close || [];
+    const volumes: (number | null)[] = result?.indicators?.quote?.[0]?.volume || [];
+
+    chartData = timestamps
+      .map((t, i) => {
+        const c = closes[i];
+        if (c == null) return null;
+        return {
+          date: new Date(t * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+          close: parseFloat(c.toFixed(2)),
+          volume: volumes[i] ?? 0,
+        };
+      })
+      .filter(Boolean) as ChartPoint[];
   } catch (e: any) {
-    console.warn(`[yahooTool] Failed to fetch chart from Yahoo Finance for ${symbol}:`, e.message);
+    console.warn(`[yahooTool] Yahoo chart fetch failed for ${symbol}:`, e.message);
   }
 
-  // Fallback to deterministic aggregates if Yahoo chart API returns empty
-  if (chartData.length === 0) {
-    chartData = generateMockChartData(seed, price);
+  if (chartData.length === 0 && price > 0) {
+    chartData = generateFallbackChartData(seed, price);
   }
 
-  // 3. Extract Ratios and Key Financial Metrics (Revenue, Net Income, P/E, Market Cap) via Tavily Search
+  // ─── Step 3: Fetch real financial metrics via Tavily + Groq extraction ──────
+  // IMPORTANT: We do NOT inject any hardcoded/simulated numbers here.
+  // If we cannot retrieve real data, we explicitly mark fields as undefined
+  // so the UI/decision node knows the data is missing rather than showing fake values.
   let marketCap: number | undefined;
   let peRatio: number | undefined;
   let revenue: number | undefined;
   let netIncome: number | undefined;
   let profitMargin: number | undefined;
-  let ratiosSource: "polygon" | "web_fallback" | "simulated" = "web_fallback";
+  let dataQuality: "live" | "estimated" | "unavailable" = "unavailable";
 
   try {
-    console.log(`[yahooTool] Performing Web search for financials of ${symbol}...`);
-    const searchFin = await axios.post("https://api.tavily.com/search", {
-      api_key: process.env.TAVILY_API_KEY,
-      query: `${symbol} ${companyName} current market cap PE ratio revenue net income profit margin quarterly annual statements 2025 2026`,
-      max_results: 5,
-    });
+    console.log(`[yahooTool] Searching real financials for ${symbol} (${companyName})...`);
+    const searchFin = await axios.post(
+      "https://api.tavily.com/search",
+      {
+        api_key: process.env.TAVILY_API_KEY,
+        query: `"${companyName}" ${symbol} annual revenue net income profit margin market cap P/E ratio 2024 2025 financial results`,
+        max_results: 6,
+      },
+      { timeout: 12000 }
+    );
 
-    const extractionPrompt = `
-Given the company stock ticker "${symbol}" (${companyName}) and these web search results containing financial reports:
-${JSON.stringify(searchFin.data)}
+    // Pass raw search content to the LLM with strict instructions NOT to fabricate
+    const rawContent = (searchFin.data?.results || [])
+      .map((r: any) => `SOURCE: ${r.url}\n${r.content}`)
+      .join("\n\n---\n\n")
+      .slice(0, 5000);
 
-Extract the following financial statistics. 
-CRITICAL: Convert all monetary values (Market Cap, Revenue, Net Income) to USD. If values are listed in INR or other currencies, convert them to USD (Approximate conversion: 1 USD = 83 INR, 1 Crore INR = 120,000 USD).
-Provide clean absolute integers.
+    const extractionPrompt = `You are a financial data extraction assistant.
 
-1. Market Capitalization (in USD)
-2. P/E Ratio (Price-to-Earnings Ratio)
-3. Revenue (annual/TTM in USD)
-4. Net Income (annual/TTM in USD)
-5. Profit Margin (Net Income / Revenue in %)
+TASK: Extract ONLY verified financial figures for "${companyName}" (ticker: ${symbol}) from the web search results below.
 
-Return ONLY a valid JSON block matching this structure. Do not write markdown tags or extra text.
+STRICT RULES:
+1. ONLY use numbers explicitly stated in the source text. Do NOT estimate, calculate, or infer values.
+2. If a metric is NOT found in the sources, return null for that field.
+3. Convert all monetary values to USD (use rate: 1 USD = 83 INR for Indian stocks).
+4. Return ONLY the JSON object. No markdown, no explanation.
 
+WEB SEARCH RESULTS:
+${rawContent}
+
+Return this exact JSON structure with real extracted values or null:
 {
-  "marketCap": 150000000000, // Number in USD
-  "peRatio": 28.5, // Number
-  "revenue": 45000000000, // Number in USD
-  "netIncome": 8500000000, // Number in USD
-  "profitMargin": 18.89 // Percentage number, e.g. 18.89
-}
-`;
+  "marketCap": <number in USD or null>,
+  "peRatio": <number or null>,
+  "revenue": <annual/TTM revenue in USD or null>,
+  "netIncome": <annual/TTM net income in USD or null>,
+  "profitMargin": <percentage number like 18.5 or null>
+}`;
 
     const extractionRes = await groq.invoke(extractionPrompt);
-    const cleanExtractionText = (extractionRes.content as string).match(/\{[\s\S]*\}/)?.[0] || extractionRes.content as string;
-    const parsedFin = JSON.parse(cleanExtractionText);
+    const rawText = extractionRes.content as string;
+    const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
+    if (!jsonMatch) throw new Error("No JSON found in Groq extraction response");
 
-    marketCap = parsedFin.marketCap || undefined;
-    peRatio = parsedFin.peRatio || undefined;
-    revenue = parsedFin.revenue || undefined;
-    netIncome = parsedFin.netIncome || undefined;
-    profitMargin = parsedFin.profitMargin || (revenue && netIncome ? (netIncome / revenue) * 100 : undefined);
+    const parsedFin = JSON.parse(jsonMatch[0]);
+
+    // Only accept values that are actual numbers (not null/undefined)
+    marketCap = typeof parsedFin.marketCap === "number" ? parsedFin.marketCap : undefined;
+    peRatio = typeof parsedFin.peRatio === "number" ? parsedFin.peRatio : undefined;
+    revenue = typeof parsedFin.revenue === "number" ? parsedFin.revenue : undefined;
+    netIncome = typeof parsedFin.netIncome === "number" ? parsedFin.netIncome : undefined;
+    profitMargin = typeof parsedFin.profitMargin === "number"
+      ? parsedFin.profitMargin
+      : revenue && netIncome
+      ? parseFloat(((netIncome / revenue) * 100).toFixed(2))
+      : undefined;
+
+    // At least one metric must be real for us to claim live data
+    const hasRealData = [marketCap, peRatio, revenue, netIncome, profitMargin].some(v => v !== undefined);
+    dataQuality = hasRealData ? "live" : "unavailable";
+
+    console.log(`[yahooTool] Extracted financials for ${symbol}:`, { marketCap, peRatio, revenue, profitMargin, dataQuality });
   } catch (finError: any) {
-    console.warn("[yahooTool] Web extraction failed, generating deterministic financials:", finError.message);
-    
-    ratiosSource = "simulated";
-    marketCap = (10 + (seed % 1490)) * 1e9;
-    peRatio = 8 + (seed % 42) + (seed % 2 === 0 ? 0.3 : 0.7);
-    revenue = (1 + (seed % 249)) * 1e9;
-    profitMargin = 4 + (seed % 36) + (seed % 2 === 0 ? 0.25 : 0.65);
-    netIncome = revenue * (profitMargin / 100);
+    console.warn("[yahooTool] Financial extraction failed:", finError.message);
+    dataQuality = "unavailable";
+    // No fallback injection — leave all ratios as undefined
   }
 
   return {
@@ -199,11 +202,11 @@ Return ONLY a valid JSON block matching this structure. Do not write markdown ta
     change: parseFloat(change.toFixed(2)),
     changePercent: parseFloat(changePercent.toFixed(2)),
     marketCap,
-    peRatio: peRatio ? parseFloat(peRatio.toFixed(2)) : undefined,
+    peRatio: peRatio != null ? parseFloat(peRatio.toFixed(2)) : undefined,
     revenue,
-    netIncome: netIncome ? Math.round(netIncome) : undefined,
-    profitMargin: profitMargin ? parseFloat(profitMargin.toFixed(2)) : undefined,
-    ratiosSource,
+    netIncome: netIncome != null ? Math.round(netIncome) : undefined,
+    profitMargin: profitMargin != null ? parseFloat(profitMargin.toFixed(2)) : undefined,
+    ratiosSource: dataQuality === "live" ? "web_fallback" : "simulated",
     chartData,
   };
 }

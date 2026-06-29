@@ -456,16 +456,25 @@ export default function Home() {
 
               {/* Financial Metrics Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {/* Data quality badge */}
+                {result.financials?.ratiosSource === "simulated" && (
+                  <div className="col-span-2 sm:col-span-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold">
+                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                    </svg>
+                    Financial ratio data could not be retrieved from live sources. Showing price & chart data only.
+                  </div>
+                )}
                 {[
                   {
                     label: "Market Cap",
                     value: formatMoney(result.financials?.marketCap),
-                    desc: "Hedge-level valuation",
+                    desc: "Total market valuation",
                   },
                   {
                     label: "P/E Ratio",
-                    value: result.financials?.peRatio || "N/A",
-                    desc: "Valuation multiple",
+                    value: result.financials?.peRatio != null ? result.financials.peRatio : "—",
+                    desc: "Price-to-earnings multiple",
                   },
                   {
                     label: "TTM Revenue",
@@ -474,7 +483,7 @@ export default function Home() {
                   },
                   {
                     label: "Profit Margin",
-                    value: result.financials?.profitMargin !== undefined ? `${result.financials.profitMargin}%` : "N/A",
+                    value: result.financials?.profitMargin != null ? `${result.financials.profitMargin}%` : "—",
                     desc: "Net profit efficiency",
                   },
                 ].map((item, idx) => (
@@ -482,7 +491,7 @@ export default function Home() {
                     <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">
                       {item.label}
                     </span>
-                    <div className="text-lg sm:text-xl font-extrabold text-zinc-200 mt-1">
+                    <div className={`text-lg sm:text-xl font-extrabold mt-1 ${item.value === "—" || item.value === "N/A" ? "text-zinc-600" : "text-zinc-200"}`}>
                       {item.value}
                     </div>
                     <span className="text-[10px] text-zinc-600 font-medium block mt-0.5">

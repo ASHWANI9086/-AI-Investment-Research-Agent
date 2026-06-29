@@ -8,8 +8,9 @@ export async function decisionNode(state: any) {
 
   console.log(`[decisionNode] Evaluating investment recommendation for "${company}"...`);
 
-  // Format news summary for prompt
-  const newsTitles = research?.news?.map((n: any) => `- ${n.title} (Source: ${n.source})`).join("\n") || "No news available.";
+  // Build financial data section, clearly marking missing fields so LLM doesn't fabricate
+  const fmt = (val: number | undefined, prefix: string, suffix = "") =>
+    val != null ? `${prefix}${val}${suffix}` : "DATA_UNAVAILABLE";
 
   const prompt = `
 You are a senior investment analyst at a top-tier hedge fund. You are tasked with analyzing a potential investment in ${company}.
@@ -19,23 +20,25 @@ Here is the gathered research and financial details:
 1. COMPANY IDENTITY
 - Name: ${financials?.companyName || company}
 - Ticker: ${financials?.symbol || "N/A"}
-- Active: ${financials?.active ? "Yes" : "No"}
+- Exchange: ${financials?.market || "N/A"}
 
 2. FINANCIAL PERFORMANCE & VALUATION
-- Price: $${financials?.price || "N/A"}
-- Daily Price Change: ${financials?.change !== undefined ? `${financials.change} (${financials.changePercent}%)` : "N/A"}
-- Market Capitalization: ${financials?.marketCap ? `$${(financials.marketCap / 1e9).toFixed(2)} Billion` : "N/A"}
-- P/E Ratio: ${financials?.peRatio || "N/A"}
-- Revenue (TTM): ${financials?.revenue ? `$${(financials.revenue / 1e9).toFixed(2)} Billion` : "N/A"}
-- Net Income (TTM): ${financials?.netIncome ? `$${(financials.netIncome / 1e9).toFixed(2)} Billion` : "N/A"}
-- Net Profit Margin: ${financials?.profitMargin !== undefined ? `${financials.profitMargin}%` : "N/A"}
+- Current Price: ${financials?.price != null ? financials.price : "DATA_UNAVAILABLE"} ${(financials?.locale || "USD").toUpperCase()}
+- Daily Price Change: ${financials?.change != null ? `${financials.change} (${financials.changePercent}%)` : "DATA_UNAVAILABLE"}
+- Market Capitalization: ${fmt(financials?.marketCap ? financials.marketCap / 1e9 : undefined, "$", " Billion USD")}
+- P/E Ratio: ${fmt(financials?.peRatio, "", "x")}
+- Revenue (TTM): ${fmt(financials?.revenue ? financials.revenue / 1e9 : undefined, "$", " Billion USD")}
+- Net Income (TTM): ${fmt(financials?.netIncome ? financials.netIncome / 1e9 : undefined, "$", " Billion USD")}
+- Net Profit Margin: ${fmt(financials?.profitMargin, "", "%")}
+
+IMPORTANT: If any field above shows "DATA_UNAVAILABLE", do NOT invent or estimate a value for it. Only reference metrics that have actual numbers provided.
 
 3. NEWS & PUBLIC SENTIMENT
-- Sentiment Score: ${research?.sentiment?.score || 0} (-100 represents extremely bearish, +100 represents extremely bullish)
+- Sentiment Score: ${research?.sentiment?.score ?? 0} (-100 = extremely bearish, +100 = extremely bullish)
 - Sentiment Label: ${research?.sentiment?.label || "Neutral"}
 - Sentiment Summary: ${research?.sentiment?.summary || "N/A"}
 - Recent News Headlines:
-${newsTitles}
+${research?.news?.map((n: any) => `- ${n.title} (${n.source})`).join("\n") || "No news available."}
 
 4. GENERAL WEB RESEARCH
 ${research?.generalAnalysis?.slice(0, 1500) || "N/A"}
