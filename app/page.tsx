@@ -21,6 +21,16 @@ import {
   InvestmentState,
 } from "@/types/investment";
 
+function getCurrencySymbol(locale?: string) {
+  if (!locale) return "$";
+  const loc = locale.toLowerCase();
+  if (loc === "inr") return "₹";
+  if (loc === "gbp" || loc === "gbx") return "£";
+  if (loc === "eur") return "€";
+  if (loc === "jpy") return "¥";
+  return "$";
+}
+
 export default function Home() {
   const [company, setCompany] = useState("");
   const [loading, setLoading] = useState(false);
@@ -349,14 +359,14 @@ export default function Home() {
                     </h3>
                   </div>
                   <p className="text-xs text-zinc-500 mt-1">
-                    Market: {result.financials?.market?.toUpperCase()} | Location: {result.financials?.locale?.toUpperCase()} | Pricing source: Polygon.io
+                    Market: {result.financials?.market?.toUpperCase()} | Currency: {result.financials?.locale?.toUpperCase()} | Pricing source: Yahoo Finance
                   </p>
                 </div>
 
                 {/* Stock Price Panel */}
                 <div className="text-right">
                   <div className="text-3xl font-black text-zinc-100">
-                    {result.financials?.price ? `$${result.financials.price.toFixed(2)}` : "N/A"}
+                    {result.financials?.price ? `${getCurrencySymbol(result.financials.locale)}${result.financials.price.toFixed(2)}` : "N/A"}
                   </div>
                   {result.financials?.change !== undefined && (
                     <div
@@ -411,7 +421,7 @@ export default function Home() {
                           fontSize={10}
                           tickLine={false}
                           domain={["auto", "auto"]}
-                          tickFormatter={(val) => `$${val}`}
+                          tickFormatter={(val) => `${getCurrencySymbol(result.financials?.locale)}${val}`}
                         />
                         <Tooltip
                           contentStyle={{

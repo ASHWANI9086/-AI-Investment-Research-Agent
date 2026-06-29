@@ -2,7 +2,7 @@
 
 This document contains the complete transcript of the chat session between the developer (User) and the coding assistant (**Antigravity**) during the autonomous implementation of the **InvestIQ AI Investment Research Agent**.
 
-*Generated automatically from the IDE system logs on 29/6/2026 at 2:33:15 pm. Secrets redacted for security.*
+*Generated automatically from the IDE system logs on 29/6/2026 at 2:37:15 pm. Secrets redacted for security.*
 
 ---
 
@@ -2227,6 +2227,129 @@ I will modify `tools/yahooTool.ts` to implement the public Yahoo Finance search 
 
 *Tools used in this turn:*
 - Tool: `write_to_file` (Action: `"Modifying yahooTool.ts"`)
+
+---
+
+### Assistant Response
+
+I will generate the updated markdown chat transcript to capture this Yahoo Finance API integration step.
+
+*Tools used in this turn:*
+- Tool: `run_command` (Action: `"Updating chat logs markdown"`)
+
+---
+
+### Assistant Response
+
+I will stage, commit, and push the changes to GitHub. This will automatically sync your code and trigger Vercel's CD build pipeline.
+
+*Tools used in this turn:*
+- Tool: `run_command` (Action: `"Pushing to GitHub"`)
+
+---
+
+### Assistant Response
+
+I will trigger the Vercel production deployment (`npx vercel@latest --prod`) to deploy the real-time Yahoo Finance integration. I'll monitor the build.
+
+*Tools used in this turn:*
+- Tool: `run_command` (Action: `"Deploying to Vercel production"`)
+
+---
+
+### Assistant Response
+
+I will check the status of the Vercel production deployment build.
+
+*Tools used in this turn:*
+- Tool: `manage_task` (Action: `"Checking deployment status"`)
+
+---
+
+### Assistant Response
+
+I will pause execution and wait for the Vercel production build to complete. The system will notify me when it is finished.
+
+---
+
+### Assistant Response
+
+I will start a browser subagent to test the live production website (`https://investiq-one.vercel.app`), query the Indian stock "BHEL" (Bharat Heavy Electricals Limited), and confirm that the stock price, daily aggregate changes, and 6-month historical chart now show real-life accurate market data that matches Google Finance.
+
+*Tools used in this turn:*
+- Tool: `browser_subagent` (Action: `"Running browser testing subagent"`)
+
+---
+
+### Assistant Response
+
+I will read the price rendering section of `app/page.tsx` to prepare the currency formatting changes.
+
+*Tools used in this turn:*
+- Tool: `view_file` (Action: `"Viewing page.tsx price section"`)
+
+---
+
+### Assistant Response
+
+I will view the YAxis charting logic in `app/page.tsx` from lines 395 to 425 to update the tick formatting.
+
+*Tools used in this turn:*
+- Tool: `view_file` (Action: `"Viewing page.tsx charting section"`)
+
+---
+
+### Assistant Response
+
+I will add a `getCurrencySymbol` helper function to `app/page.tsx` right above the main `Home` component. This will translate the currency code returned from Yahoo Finance (such as `inr`, `usd`, `eur`, `gbp`) into its corresponding symbol (`₹`, `$`, `€`, `£`), allowing the stock price to render under the correct currency representation.
+
+*Tools used in this turn:*
+- Tool: `replace_file_content` (Action: `"Modifying page.tsx helpers"`)
+
+---
+
+### Assistant Response
+
+I will inspect the price panel block in `app/page.tsx` (lines 355 to 375) to replace the hardcoded `$` and `Polygon.io` string with dynamic symbols and a `Yahoo Finance` label.
+
+*Tools used in this turn:*
+- Tool: `view_file` (Action: `"Viewing page.tsx price section"`)
+
+---
+
+### Assistant Response
+
+I will modify the price label and value rendering block (lines 361 to 370) to show the correct currency symbol and update the pricing source reference to "Yahoo Finance".
+
+*Tools used in this turn:*
+- Tool: `replace_file_content` (Action: `"Modifying page.tsx price banner"`)
+
+---
+
+### Assistant Response
+
+I will read the YAxis chart section to get the exact lines to modify.
+
+*Tools used in this turn:*
+- Tool: `view_file` (Action: `"Viewing page.tsx charting section"`)
+
+---
+
+### Assistant Response
+
+I will modify the chart's Y-axis formatter in `app/page.tsx` (lines 419 to 425) to use our new `getCurrencySymbol` helper instead of a hardcoded dollar symbol.
+
+*Tools used in this turn:*
+- Tool: `replace_file_content` (Action: `"Modifying page.tsx chart axis"`)
+
+---
+
+### Assistant Response
+
+I will correct a small typo (a semicolon instead of a brace in `fontSize`) in the `YAxis` component in `app/page.tsx`.
+
+*Tools used in this turn:*
+- Tool: `replace_file_content` (Action: `"Fixing typo in page.tsx"`)
 
 ---
 
