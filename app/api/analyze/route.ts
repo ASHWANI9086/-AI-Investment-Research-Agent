@@ -1,5 +1,9 @@
 import { investmentGraph } from "@/agents/graph";
 
+// Extend Vercel serverless function timeout to 60 seconds
+// This allows Tavily financial searches + Groq LLM calls to complete
+export const maxDuration = 60;
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
